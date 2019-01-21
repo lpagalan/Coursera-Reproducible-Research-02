@@ -36,8 +36,10 @@ The data for this assignment come in the form of a comma-separated-value file co
 ```r
 # Load libraries
 
+library(scales)
 library(tidyverse)
 library(lubridate)
+
 library(knitr)
 
 # Download data
@@ -50,7 +52,9 @@ if(!file.exists("repdata_data_StormData.csv.bz2")) {
 
 noaa <- read.csv("repdata_data_StormData.csv.bz2",
                  stringsAsFactors = F,
-                 strip.white = T)
+                 sep = ",",
+                 strip.white = T,
+                 na.strings = "")
 ```
 
 ### 2.2. Subseting Data
@@ -60,7 +64,7 @@ Population health impacts are measured as the fatalities and injuries resulting 
 - **EVTYPE**: Severe weather event type
 - **BGN_DATE**: Start date of severe weather event
 - **FATALITIES**: Number of deaths resulting from the severe weather event
-- **INJURIES**: Number of deaths resulting from the severe weather event
+- **INJURIES**: Number of injuries resulting from the severe weather event
 - **PROPDMG**: Property damage (base amount)
 - **PROPDMGEXP**: Property damage multiplier (e.g. K: 1,000; M: 1,000,000, etc.)
 - **CROPDMG**: Crop damage (base amount)
@@ -90,7 +94,7 @@ noaa.subset <- select(noaa,
 
 ### 2.3. Recoding Severe Weather Types
 
-The original dataset contains over 400 unique values for severe weather types, which must be recoded based on the permitted storm data event types listed on [page 6, Table 2.1.1 "Storm Data Event Table"](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf).
+The dataset contains over 400 unique values for severe weather types, which must be recoded into the 48 permitted storm event types listed on [page 6, Table 2.1.1 "Storm Data Event Table"](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf).
 
 
 ```r
@@ -155,23 +159,35 @@ noaa.subset <- rbind(noaa.subset.event.allowed, noaa.subset.event.recode)
 
 ### 2.4. Calculating Total Economic Costs
 
-Total economic costs are calculated by multiplying `PROPDMG` and `PROPDMGEXP`, and `CROPDMG` and `CROPDMGEXP`, respectively. The variables `PROPDMGEXP` and `CROPDMGEXP` are coded as: “B” for billions, “M” for millions, and “K” for thousands.
+Total economic costs are calculated by multiplying `PROPDMG` and `PROPDMGEXP`, and `CROPDMG` and `CROPDMGEXP`, respectively. The variables `PROPDMGEXP` and `CROPDMGEXP` are coded as: “B” for billions, “M” for millions, and “K” for thousands. The numbers 1 to 10 represent the power of ten (eg. 10^number).
 
 
 ```r
 # Calculate economic costs as total dollars
 
 noaa.subset <- mutate(noaa.subset,
+                      
+  # Capitalize multiplier codes
+  
+  PROPDMGEXP = toupper(PROPDMGEXP),
+  CROPDMGEXP = toupper(CROPDMGEXP),
+  
+  # Multiply base damage with appropriate multiplier
+  
   PROPDMG.TOTAL = case_when(
-    PROPDMGEXP == "K" ~ PROPDMG * 1e+03, # Thousands
-    PROPDMGEXP == "M" ~ PROPDMG * 1e+06, # Millions
-    PROPDMGEXP == "B" ~ PROPDMG * 1e+09, # Billions
-                 TRUE ~ PROPDMG),
+             PROPDMGEXP == "H" ~ PROPDMG * 1e+02,         # Hundreds
+             PROPDMGEXP == "K" ~ PROPDMG * 1e+03,         # Thousands
+             PROPDMGEXP == "M" ~ PROPDMG * 1e+06,         # Millions
+             PROPDMGEXP == "B" ~ PROPDMG * 1e+09,         # Billions
+    grepl("[0-9]", PROPDMGEXP) ~ PROPDMG * 10^as.numeric(PROPDMGEXP),
+                          TRUE ~ PROPDMG),
   CROPDMG.TOTAL = case_when(
-    CROPDMGEXP == "K" ~ CROPDMG * 1e+03, # Thousand
-    CROPDMGEXP == "M" ~ CROPDMG * 1e+06, # Millions
-    CROPDMGEXP == "B" ~ CROPDMG * 1e+09, # Billions
-                 TRUE ~ CROPDMG))
+             CROPDMGEXP == "H" ~ CROPDMG * 1e+02,         # Hundreds
+             CROPDMGEXP == "K" ~ CROPDMG * 1e+03,         # Thousand
+             CROPDMGEXP == "M" ~ CROPDMG * 1e+06,         # Millions
+             CROPDMGEXP == "B" ~ CROPDMG * 1e+09,         # Billions
+    grepl("[0-9]", CROPDMGEXP) ~ PROPDMG * 10^as.numeric(CROPDMGEXP),
+                          TRUE ~ CROPDMG))
 ```
 
 ## 3. Results
@@ -191,13 +207,16 @@ results.fatalities <- group_by(noaa.subset, EVTYPE) %>%
   top_n(10, FATALITIES)
 
 ggplot(results.fatalities, aes(reorder(EVTYPE, FATALITIES), FATALITIES)) +
-  geom_col() +
+  geom_col(fill = "darkolivegreen4") +
   coord_flip() +
   labs(y = "Fatalities",
        x = "Severe Weather",
-       title = "Figure 1. Total fatalities in the US from\nsevere weather events from 1996-2011") +
+       title = "Figure 1. Fatalities in the US from severe weather events from 1996-2011") +
+  scale_y_continuous(labels = comma) +
   theme_light()+
-  theme(axis.title.y    = element_blank())
+  theme(axis.title.y = element_blank(),
+        plot.title   = element_text(size = 12,
+                                    face = "bold"))
 ```
 
 ![](severe_weather_impacts_files/figure-html/unnamed-chunk-3-1.png)<!-- -->
@@ -213,13 +232,16 @@ results.injuries <- group_by(noaa.subset, EVTYPE) %>%
   top_n(10, INJURIES)
 
 ggplot(results.injuries, aes(reorder(EVTYPE, INJURIES), INJURIES)) +
-  geom_col() +
+  geom_col(fill = "skyblue4") +
   coord_flip() +
   labs(y = "Injuries",
        x = "Severe Weather",
-       title = "Figure 2. Total injuries in the US from\nsevere weather events from 1996-2011") +
+       title = "Figure 2. Injuries in the US from severe weather events from 1996-2011") +
+  scale_y_continuous(labels = comma) +
   theme_light() +
-  theme(axis.title.y    = element_blank())
+  theme(axis.title.y = element_blank(),
+        plot.title   = element_text(size = 12,
+                                    face = "bold"))
 ```
 
 ![](severe_weather_impacts_files/figure-html/unnamed-chunk-4-1.png)<!-- -->
@@ -254,11 +276,14 @@ ggplot(results.economic, aes(reorder(EVTYPE, DMG.DOLLARS.BILLION),
   labs(y = "Billions of Dollars",
        x = "Severe Weather",
        fill = "Damage",
-       title = "Figure 3. Total damages in the US from\nsevere weather events from 1996-2011") +
+       title = "Figure 3. Damages in the US from severe weather events from 1996-2011") +
   guides(fill = guide_legend(reverse=T)) +
+  scale_y_continuous(labels = comma) +
   theme_light() +
   theme(legend.position = "bottom",
-        axis.title.y    = element_blank())
+        axis.title.y    = element_blank(),
+        plot.title      = element_text(size = 12,
+                                       face = "bold"))
 ```
 
 ![](severe_weather_impacts_files/figure-html/unnamed-chunk-5-1.png)<!-- -->
